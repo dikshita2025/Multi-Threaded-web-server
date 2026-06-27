@@ -1,0 +1,19 @@
+# Build directories
+build/
+bin/
+*.o
+*.a
+*.dylib
+*.so
+
+# Logs
+*.log
+server.log
+
+# macOS
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+*.swp

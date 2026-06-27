@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>C++ HTTP Server — Phase 6 Complete</title>
+  <meta name="description" content="High-performance C++ HTTP/1.1 server built from scratch with kqueue I/O, thread pool, LRU cache, and async logging."/>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:   #00ff88;
+      --cyan:    #00d4ff;
+      --purple:  #a855f7;
+      --bg:      #050508;
+      --surface: #0d0d14;
+      --card:    #111118;
+      --border:  rgba(0,255,136,0.15);
+      --text:    #e2e8f0;
+      --muted:   #64748b;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated grid background ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Glow blobs ── */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.12;
+      pointer-events: none;
+      z-index: 0;
+      animation: float 8s ease-in-out infinite;
+    }
+    .blob-1 { width: 400px; height: 400px; background: var(--green);  top: -100px; left: -100px; }
+    .blob-2 { width: 300px; height: 300px; background: var(--cyan);   bottom: 100px; right: -50px; animation-delay: -4s; }
+    .blob-3 { width: 200px; height: 200px; background: var(--purple); top: 50%; right: 25%; animation-delay: -2s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(20px); }
+    }
+
+    /* ── Main card ── */
+    .card {
+      position: relative;
+      z-index: 1;
+      background: linear-gradient(135deg, var(--card) 0%, #0a0a12 100%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3rem 2.5rem;
+      max-width: 720px;
+      width: 100%;
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 0 60px rgba(0,255,136,0.08),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+      margin-top: 2rem;
+    }
+
+    .badge-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+      justify-content: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.8rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .badge-green  { background: rgba(0,255,136,0.12); color: var(--green);  border: 1px solid rgba(0,255,136,0.3); }
+    .badge-cyan   { background: rgba(0,212,255,0.12); color: var(--cyan);   border: 1px solid rgba(0,212,255,0.3); }
+    .badge-purple { background: rgba(168,85,247,0.12);color: var(--purple); border: 1px solid rgba(168,85,247,0.3);}
+
+    .badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 700;
+      text-align: center;
+      background: linear-gradient(135deg, var(--green) 0%, var(--cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 2.5rem;
+    }
+
+    /* ── Stats row ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1rem;
+      text-align: center;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .stat:hover { transform: translateY(-2px); border-color: rgba(0,255,136,0.4); }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--green);
+      display: block;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Phases ── */
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .phases { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2.5rem; }
+
+    .phase {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.875rem 1rem;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid transparent;
+      transition: border-color 0.2s, transform 0.2s;
+      cursor: default;
+    }
+    .phase:hover { border-color: var(--border); transform: translateX(3px); }
+
+    .phase-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0;
+    }
+    .done   { background: var(--green); color: #050508; }
+    .phase-name { flex: 1; font-size: 0.875rem; }
+    .phase-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--cyan);
+      background: rgba(0,212,255,0.08);
+      border: 1px solid rgba(0,212,255,0.2);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    /* ── Tech stack ── */
+    .tech {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--cyan);
+      background: rgba(0,212,255,0.06);
+      border: 1px solid rgba(0,212,255,0.15);
+      padding: 0.3rem 0.7rem;
+      border-radius: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .chip:hover { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.35); }
+
+    /* ── Code block ── */
+    .code-block {
+      background: #08080f;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: #94a3b8;
+      line-height: 1.8;
+      margin-bottom: 2rem;
+      overflow-x: auto;
+    }
+    .code-block .prompt { color: var(--green); }
+    .code-block .comment { color: #475569; }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1.8;
+    }
+    footer a {
+      color: var(--green);
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    footer a:hover { opacity: 0.7; }
+
+    @media (max-width: 500px) {
+      .stats { grid-template-columns: 1fr 1fr; }
+      .card  { padding: 2rem 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+
+  <div class="card">
+    <div class="badge-row">
+      <span class="badge badge-green"><span class="dot"></span>All Phases Complete</span>
+      <span class="badge badge-cyan">C++17</span>
+      <span class="badge badge-purple">kqueue / POSIX</span>
+    </div>
+
+    <h1>⚡ C++ HTTP Server</h1>
+    <p class="subtitle">
+      High-performance HTTP/1.1 server built from raw POSIX sockets.<br/>
+      No frameworks. No shortcuts. Pure systems programming.
+    </p>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-value">~30k</span>
+        <span class="stat-label">Req / sec</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">&lt;0.4ms</span>
+        <span class="stat-label">Avg latency</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">O(1)</span>
+        <span class="stat-label">Cache ops</span>
+      </div>
+    </div>
+
+    <!-- Phases -->
+    <div class="section-title">Implementation phases</div>
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-num done">✓</div>
+        <div class="phase-name">Phase 1 — TCP Socket Server</div>
+        <span class="phase-tag">POSIX · RAII</span>
+      </div>
+      <div class="phase">
+        <div class="phase-num done">✓</div>
+        <div class="phase-name">Phase 2 — Thread Pool</div>
+        <span class="phase-tag">mutex · condvar</span>
+      </div>
+      <div class="phase">
+        <div class="phase-num done">✓</div>
+        <div class="phase-name">Phase 3 — HTTP/1.1 Parser</div>
+        <span class="phase-tag">RFC 7230</span>
+      </div>
+      <div class="phase">
+        <div class="phase-num done">✓</div>
+        <div class="phase-name">Phase 4 — Static File Server</div>
+        <span class="phase-tag">sendfile() · vhosts</span>
+      </div>
+      <div class="phase">
+        <div class="phase-num done">✓</div>
+        <div class="phase-name">Phase 5 — LRU Cache + Async Logger</div>
+        <span class="phase-tag">shared_mutex · O(1)</span>
+      </div>
+      <div class="phase">
+        <div class="phase-num done">✓</div>
+        <div class="phase-name">Phase 6 — kqueue + Benchmarks</div>
+        <span class="phase-tag">TCP_NODELAY · ~30k rps</span>
+      </div>
+    </div>
+
+    <!-- Tech -->
+    <div class="section-title">Tech &amp; concepts</div>
+    <div class="tech">
+      <span class="chip">kqueue</span>
+      <span class="chip">POSIX sockets</span>
+      <span class="chip">std::shared_mutex</span>
+      <span class="chip">sendfile()</span>
+      <span class="chip">TCP_NODELAY</span>
+      <span class="chip">SO_REUSEPORT</span>
+      <span class="chip">LRU cache</span>
+      <span class="chip">thread pool</span>
+      <span class="chip">async logging</span>
+      <span class="chip">HTTP keep-alive</span>
+      <span class="chip">virtual hosts</span>
+      <span class="chip">zero-copy I/O</span>
+    </div>
+
+    <!-- Quick start -->
+    <div class="section-title">Quick start</div>
+    <div class="code-block">
+      <span class="comment"># Build in release mode (O3 + march=native)</span><br/>
+      <span class="prompt">$</span> cmake -B build -DCMAKE_BUILD_TYPE=Release &amp;&amp; cmake --build build<br/>
+      <br/>
+      <span class="comment"># Run (auto-detects CPU core count)</span><br/>
+      <span class="prompt">$</span> ./build/http_server 8080<br/>
+      <br/>
+      <span class="comment"># Benchmark: 10k requests, 100 concurrent</span><br/>
+      <span class="prompt">$</span> ab -n 10000 -c 100 http://localhost:8080/<br/>
+      <br/>
+      <span class="comment"># Full benchmark matrix</span><br/>
+      <span class="prompt">$</span> ./benchmark/run_bench.sh<br/>
+      <br/>
+      <span class="comment"># Live metrics (JSON)</span><br/>
+      <span class="prompt">$</span> curl http://localhost:8080/metrics
+    </div>
+
+    <footer>
+      Serving via your own C++ HTTP server &nbsp;·&nbsp;
+      <a href="/metrics">metrics</a> &nbsp;·&nbsp;
+      Built with C++17 &amp; CMake
+    </footer>
+  </div>
+</body>
+</html>
